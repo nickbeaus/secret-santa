@@ -1,0 +1,20 @@
+# Secret Santa
+#   cp .env.example .env     # then edit .env
+#   docker compose up -d     # downloads the image and starts the site
+#   docker compose logs web  # shows the first-run setup code
+#
+# To update: change the version below, then  docker compose pull && docker compose up -d
+# To build from this folder's source instead (development), see compose.build.yaml.
+services:
+  web:
+    image: ghcr.io/nickbeaus/secret-santa:1.0.0
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "${HOST_PORT:-8080}:8080"
+    volumes:
+      # The SQLite database, its automatic pre-upgrade backups, and login sessions.
+      - secret-santa-data:/data
+
+volumes:
+  secret-santa-data:

@@ -1,0 +1,11 @@
+# Real settings and secrets: only .env.example belongs in git
+.env
+.env.*
+!.env.example
+
+# Data: database files, backups, exports (they contain people's names and numbers)
+data/
+*.sqlite
+*.sqlite-*
+*.bak
+*.json

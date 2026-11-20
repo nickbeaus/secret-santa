@@ -1,0 +1,7 @@
+# Development: build the image from this folder instead of downloading it.
+#   docker compose -f compose.yaml -f compose.build.yaml up -d --build
+# Compose merges this file over compose.yaml, so only the differences are here.
+services:
+  web:
+    build: .
+    image: secret-santa:dev

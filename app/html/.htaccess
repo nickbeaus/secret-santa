@@ -1,0 +1,36 @@
+# Secret Santa URL Rewriting
+# This file tells the server how to handle "pretty URLs".
+
+# Enable the rewrite engine
+RewriteEngine On
+
+# Short reveal links sent by text: /r/Ab3dEf9h -> reveal.php?code=Ab3dEf9h
+RewriteRule ^r/([A-Za-z0-9]{8})$ reveal.php?code=$1 [L,QSA]
+# Short gift-ideas links: /g/Ab3dEf9h -> the group's gift idea URL
+RewriteRule ^g/([A-Za-z0-9]{8})$ gifts.php?code=$1 [L,QSA]
+
+# --- Conditions ---
+# These conditions prevent the rule from applying to actual files or directories.
+# For example, it won't try to rewrite a request for /admin.php or a css file.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# --- The Rewrite Rule ---
+# This is the main rule. It looks for a URL that matches the pattern of a UUID.
+# ^                                - Start of the string
+# ([a-f0-9\-]{36})                  - A group matching a 36-character string of hex digits and hyphens (the UUID)
+# $                                - End of the string
+#
+# If it matches, it rewrites the URL to reveal.php?uuid=$1
+# $1 is a backreference to the UUID that was captured in the parentheses.
+# [L] means this is the Last rule to apply.
+# [QSA] means Query String Append, which preserves any other query parameters.
+RewriteRule ^([a-f0-9\-]{36})$ reveal.php?uuid=$1 [L,QSA]
+
+# --- Hardening ---
+# Don't list directory contents.
+Options -Indexes
+# Never serve hidden files or editor/backup copies (e.g. .git, file.php~, file.php.bak).
+<FilesMatch "(^\.|~$|\.(bak|old|orig|swp|sql)$)">
+    Require all denied
+</FilesMatch>
