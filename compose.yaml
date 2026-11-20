@@ -7,7 +7,7 @@
 # To build from this folder's source instead (development), see compose.build.yaml.
 services:
   web:
-    image: ghcr.io/nickbeaus/secret-santa:1.0.0
+    image: ghcr.io/nickbeaus/secret-santa:1.0.1
     restart: unless-stopped
     env_file: .env
     ports:
