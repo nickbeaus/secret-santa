@@ -229,13 +229,17 @@ if (!preg_match(UUID_PATTERN, $uuid)) {
                     <div id="recipient-name-container" class="recipient-name" style="display: none; opacity: 0;"><?php echo h($giving_to['name']); ?></div>
                 </div>
 
-                <?php if (is_web_url($participant_info['gift_idea_url'] ?? '')): ?>
-                    <a href="<?php echo h($participant_info['gift_idea_url']); ?>" class="btn btn-success" target="_blank" rel="noopener noreferrer">View Group Gift Ideas</a>
-                <?php endif; ?>
-
-                <p id="final-message" class="text-muted mt-3" style="display: none;">Happy gifting! Remember to keep it a secret. 😉</p>
             <?php else: ?>
                 <p class="lead text-muted mt-4"><?php echo h($error_message); ?></p>
+            <?php endif; ?>
+
+            <?php // Shown before the drawing too, so people can add ideas early. ?>
+            <?php if (is_web_url($participant_info['gift_idea_url'] ?? '')): ?>
+                <a href="<?php echo h($participant_info['gift_idea_url']); ?>" class="btn btn-success" target="_blank" rel="noopener noreferrer">View Group Gift Ideas</a>
+            <?php endif; ?>
+
+            <?php if ($giving_to): ?>
+                <p id="final-message" class="text-muted mt-3" style="display: none;">Happy gifting! Remember to keep it a secret. 😉</p>
             <?php endif; ?>
         <?php else: ?>
             <div class="gift-icon mb-3">🤔</div>
