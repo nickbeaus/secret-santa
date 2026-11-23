@@ -164,7 +164,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // --- Add an existing user to this group ---
     if (isset($_POST['add_participant'])) {
         $user_id_to_add = (int)($_POST['user_id'] ?? 0);
-        if ($user_id_to_add > 0) {
+        $disabled_stmt = $pdo->prepare("SELECT disabled FROM users WHERE id = ?");
+        $disabled_stmt->execute([$user_id_to_add]);
+        if ($user_id_to_add > 0 && $disabled_stmt->fetchColumn()) {
+            $feedback_message = "That user is disabled. Enable them on the Users page to add them to a group.";
+            $feedback_class = 'alert-warning';
+        } elseif ($user_id_to_add > 0) {
             try {
                 $stmt = $pdo->prepare("INSERT INTO `participants` (user_id, group_id) VALUES (?, ?)");
                 $stmt->execute([$user_id_to_add, $group_id]);
@@ -384,7 +389,7 @@ try {
     $all_other_groups_stmt->execute([$group_id]);
     $all_other_groups = $all_other_groups_stmt->fetchAll();
 
-    $available_users_stmt = $pdo->prepare("SELECT id, name, email FROM users WHERE id NOT IN (SELECT user_id FROM participants WHERE group_id = ?) ORDER BY name ASC");
+    $available_users_stmt = $pdo->prepare("SELECT id, name, email FROM users WHERE disabled = 0 AND id NOT IN (SELECT user_id FROM participants WHERE group_id = ?) ORDER BY name ASC");
     $available_users_stmt->execute([$group_id]);
     $available_users = $available_users_stmt->fetchAll();
 

@@ -23,6 +23,7 @@ const EXPORT_TABLES = [
     'users' => [
         'id' => ['int', true], 'uuid' => ['text', true], 'short_code' => ['text', false], 'name' => ['text', true],
         'email' => ['text', false], 'phone_number' => ['text', false], 'creation_date' => ['time', true],
+        'disabled' => ['bool', false],
     ],
     'groups' => [
         'id' => ['int', true], 'short_code' => ['text', false], 'name' => ['text', true], 'reveal_message' => ['text', false],
@@ -50,12 +51,21 @@ const EXPORT_TABLES = [
 ];
 
 /**
+ * Columns added after the old MySQL site, so they're skipped when exporting from it.
+ * Missing values import as the column's default (false for these).
+ */
+const EXPORT_NOT_IN_MYSQL = ['users' => ['disabled']];
+
+/**
  * Reads every table into an export array. For MySQL, the connection must use
  * time_zone '+00:00' so timestamps come out in UTC.
  */
 function export_data(PDO $pdo, $source) {
     $tables = [];
     foreach (EXPORT_TABLES as $table => $columns) {
+        if ($source === 'mysql') {
+            $columns = array_diff_key($columns, array_flip(EXPORT_NOT_IN_MYSQL[$table] ?? []));
+        }
         $cols = implode(', ', array_map(fn($c) => "`{$c}`", array_keys($columns)));
         $rows = $pdo->query("SELECT {$cols} FROM `{$table}` ORDER BY id")->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as &$row) {
@@ -181,7 +191,8 @@ function import_data(PDO $pdo, array $data) {
                 $values = [];
                 foreach ($columns as $col => [$type]) {
                     $value = $row[$col] ?? null;
-                    $values[] = ($type === 'bool' && $value !== null) ? (int)(bool)$value : $value;
+                    // Optional flags (e.g. users.disabled, absent from older exports) default to false.
+                    $values[] = $type === 'bool' ? (int)(bool)$value : $value;
                 }
                 $stmt->execute($values);
             }

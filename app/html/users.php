@@ -5,6 +5,7 @@
  * This page allows an admin to manage all users in the system,
  * create new users, edit existing users, and manage blocked pairings.
  * Users who have never been added to a group can also be deleted.
+ * Disabled users are kept but left out of the "Add Participant" menu on group pages.
  */
 
 require_once __DIR__ . '/../includes/bootstrap.php';
@@ -103,6 +104,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
+    // --- Handle Disabling / Enabling a User ---
+    // Disabled users stay in any groups they're already in; they just can't be added to new ones.
+    if (isset($_POST['set_disabled'])) {
+        $user_id = (int)($_POST['user_id'] ?? 0);
+        $disabled = (int)($_POST['set_disabled'] === '1');
+        try {
+            $stmt = $pdo->prepare("UPDATE users SET disabled = ? WHERE id = ?");
+            $stmt->execute([$disabled, $user_id]);
+            if ($stmt->rowCount() > 0) {
+                $feedback_message = $disabled
+                    ? "The user has been disabled and won't appear when adding participants to a group."
+                    : "The user has been enabled.";
+                $feedback_class = 'alert-info';
+            }
+        } catch (PDOException $e) {
+            $feedback_message = db_error_message('Error updating user', $e);
+            $feedback_class = 'alert-danger';
+        }
+    }
+
     // --- Handle Adding a Blocked Pairing ---
     if (isset($_POST['add_block'])) {
         $user1_id = (int)($_POST['user1_id'] ?? 0);
@@ -146,9 +167,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 
 // --- Fetch Data for Display ---
-$all_users = $pdo->query("SELECT u.id, u.name, u.email, u.phone_number, (SELECT COUNT(*) FROM participants p WHERE p.user_id = u.id) AS group_count FROM users u ORDER BY u.name ASC")->fetchAll();
+$all_users = $pdo->query("SELECT u.id, u.name, u.email, u.phone_number, u.disabled, (SELECT COUNT(*) FROM participants p WHERE p.user_id = u.id) AS group_count FROM users u ORDER BY u.disabled ASC, u.name ASC")->fetchAll();
 $blocked_pairings = $pdo->query(
-    "SELECT bp.id, u1.name AS name1, u2.name AS name2
+    "SELECT bp.id, u1.name AS name1, u2.name AS name2, u1.disabled AS disabled1, u2.disabled AS disabled2
      FROM blocked_pairings bp
      JOIN users u1 ON bp.user_id_1 = u1.id
      JOIN users u2 ON bp.user_id_2 = u2.id
@@ -162,6 +183,7 @@ $form = $form_values ?? [
     'email'        => $editing_user['email'] ?? '',
     'phone_number' => format_phone($editing_user['phone_number'] ?? ''),
 ];
+$disabled_count = count(array_filter($all_users, fn($u) => $u['disabled']));
 $phone_count = count(array_filter($all_users, fn($u) => normalize_phone($u['phone_number']) !== '' && normalize_phone($u['phone_number']) !== false));
 
 admin_header('User Management', $feedback_message, $feedback_class);
@@ -218,13 +240,14 @@ admin_header('User Management', $feedback_message, $feedback_class);
         <div class="col-md-7">
             <div class="card shadow-sm mb-4">
                 <div class="card-header"><h5 class="mb-0">All Users (<?php echo count($all_users); ?>)</h5>
-                    <small class="text-muted"><?php echo $phone_count; ?> of <?php echo count($all_users); ?> have a mobile number</small></div>
+                    <small class="text-muted"><?php echo $phone_count; ?> of <?php echo count($all_users); ?> have a mobile number<?php if ($disabled_count) echo " · {$disabled_count} disabled"; ?></small></div>
                 <div class="card-body">
                     <div class="list-group">
                         <?php foreach ($all_users as $user): ?>
-                            <div class="list-group-item d-flex justify-content-between align-items-center">
-                                <div>
-                                    <strong><?php echo h($user['name']); ?></strong><br>
+                            <div class="list-group-item d-flex justify-content-between align-items-center<?php if ($user['disabled']) echo ' bg-body-tertiary'; ?>">
+                                <div<?php if ($user['disabled']) echo ' class="opacity-75"'; ?>>
+                                    <strong><?php echo h($user['name']); ?></strong>
+                                    <?php if ($user['disabled']): ?><span class="badge text-bg-secondary ms-1">Disabled</span><?php endif; ?><br>
                                     <?php $phone = normalize_phone($user['phone_number']); ?>
                                     <?php if ($phone): ?>
                                         <small class="text-body-secondary">📱 <?php echo h(format_phone($phone)); ?></small>
@@ -237,6 +260,15 @@ admin_header('User Management', $feedback_message, $feedback_class);
                                 </div>
                                 <div class="d-flex gap-1">
                                     <a href="users.php?edit_id=<?php echo (int)$user['id']; ?>" class="btn btn-sm btn-secondary">Edit</a>
+                                    <form action="users.php" method="POST">
+                                        <?php echo csrf_field(); ?>
+                                        <input type="hidden" name="user_id" value="<?php echo (int)$user['id']; ?>">
+                                        <?php if ($user['disabled']): ?>
+                                            <button type="submit" name="set_disabled" value="0" class="btn btn-sm btn-outline-success">Enable</button>
+                                        <?php else: ?>
+                                            <button type="submit" name="set_disabled" value="1" class="btn btn-sm btn-outline-secondary" title="Hide from the Add Participant menu">Disable</button>
+                                        <?php endif; ?>
+                                    </form>
                                     <?php if ($user['group_count'] == 0): ?>
                                         <form action="users.php" method="POST" data-confirm="Delete <?php echo h($user['name']); ?>? This cannot be undone.">
                                             <?php echo csrf_field(); ?>
@@ -264,7 +296,7 @@ admin_header('User Management', $feedback_message, $feedback_class);
                             <select name="user1_id" class="form-select" required>
                                 <option value="">Select first user...</option>
                                 <?php foreach ($all_users as $user): ?>
-                                    <option value="<?php echo (int)$user['id']; ?>"><?php echo h($user['name']); ?></option>
+                                    <option value="<?php echo (int)$user['id']; ?>"><?php echo h($user['name']); ?><?php if ($user['disabled']) echo ' (disabled)'; ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -272,7 +304,7 @@ admin_header('User Management', $feedback_message, $feedback_class);
                             <select name="user2_id" class="form-select" required>
                                 <option value="">Select second user...</option>
                                 <?php foreach ($all_users as $user): ?>
-                                    <option value="<?php echo (int)$user['id']; ?>"><?php echo h($user['name']); ?></option>
+                                    <option value="<?php echo (int)$user['id']; ?>"><?php echo h($user['name']); ?><?php if ($user['disabled']) echo ' (disabled)'; ?></option>
                                 <?php endforeach; ?>
                             </select>
                         </div>
@@ -290,7 +322,16 @@ admin_header('User Management', $feedback_message, $feedback_class);
                         <ul class="list-group">
                             <?php foreach ($blocked_pairings as $block): ?>
                                 <li class="list-group-item d-flex justify-content-between align-items-center">
-                                    <?php echo h($block['name1']); ?> &harr; <?php echo h($block['name2']); ?>
+                                    <span>
+                                        <?php foreach ([1, 2] as $n): ?>
+                                            <?php if ($n === 2) echo '&harr;'; ?>
+                                            <?php if ($block["disabled{$n}"]): ?>
+                                                <span class="text-body-secondary" title="This user is disabled"><?php echo h($block["name{$n}"]); ?> <span class="badge text-bg-secondary">Disabled</span></span>
+                                            <?php else: ?>
+                                                <?php echo h($block["name{$n}"]); ?>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    </span>
                                     <form action="users.php" method="POST" data-confirm="Are you sure you want to remove this block?">
                                         <?php echo csrf_field(); ?>
                                         <input type="hidden" name="block_id" value="<?php echo (int)$block['id']; ?>">
