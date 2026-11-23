@@ -169,7 +169,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // --- Fetch Data for Display ---
 $all_users = $pdo->query("SELECT u.id, u.name, u.email, u.phone_number, u.disabled, (SELECT COUNT(*) FROM participants p WHERE p.user_id = u.id) AS group_count FROM users u ORDER BY u.disabled ASC, u.name ASC")->fetchAll();
 $blocked_pairings = $pdo->query(
-    "SELECT bp.id, u1.name AS name1, u2.name AS name2, u1.disabled AS disabled1, u2.disabled AS disabled2
+    "SELECT bp.id, bp.user_id_1 AS id1, bp.user_id_2 AS id2, u1.name AS name1, u2.name AS name2, u1.disabled AS disabled1, u2.disabled AS disabled2
      FROM blocked_pairings bp
      JOIN users u1 ON bp.user_id_1 = u1.id
      JOIN users u2 ON bp.user_id_2 = u2.id
@@ -183,6 +183,13 @@ $form = $form_values ?? [
     'email'        => $editing_user['email'] ?? '',
     'phone_number' => format_phone($editing_user['phone_number'] ?? ''),
 ];
+// How many blocks each user is in, for the "N blocks" links in the user list
+$block_counts = [];
+foreach ($blocked_pairings as $block) {
+    $block_counts[$block['id1']] = ($block_counts[$block['id1']] ?? 0) + 1;
+    $block_counts[$block['id2']] = ($block_counts[$block['id2']] ?? 0) + 1;
+}
+$blocked_users = array_filter($all_users, fn($u) => isset($block_counts[$u['id']]));
 $disabled_count = count(array_filter($all_users, fn($u) => $u['disabled']));
 $phone_count = count(array_filter($all_users, fn($u) => normalize_phone($u['phone_number']) !== '' && normalize_phone($u['phone_number']) !== false));
 
@@ -257,6 +264,9 @@ admin_header('User Management', $feedback_message, $feedback_class);
                                         <small class="text-muted fst-italic">No phone</small>
                                     <?php endif; ?>
                                     <?php if ($user['email']): ?><small class="text-muted"> · <?php echo h($user['email']); ?></small><?php endif; ?>
+                                    <?php if ($n_blocks = $block_counts[$user['id']] ?? 0): ?>
+                                        <small> · <a href="users.php?blocks_for=<?php echo (int)$user['id']; ?>#existing_blocks" class="show-blocks link-secondary" data-user-id="<?php echo (int)$user['id']; ?>">🚫 <?php echo $n_blocks; ?> block<?php echo $n_blocks === 1 ? '' : 's'; ?></a></small>
+                                    <?php endif; ?>
                                 </div>
                                 <div class="d-flex gap-1">
                                     <a href="users.php?edit_id=<?php echo (int)$user['id']; ?>" class="btn btn-sm btn-secondary">Edit</a>
@@ -313,22 +323,33 @@ admin_header('User Management', $feedback_message, $feedback_class);
                 </div>
             </div>
 
-            <div class="card shadow-sm">
-                <div class="card-header"><h5 class="mb-0">Existing Blocks</h5></div>
+            <div class="card shadow-sm" id="existing_blocks">
+                <div class="card-header"><h5 class="mb-0">Existing Blocks (<?php echo count($blocked_pairings); ?>)</h5></div>
                 <div class="card-body">
                     <?php if (empty($blocked_pairings)): ?>
                         <p class="text-center text-muted">No blocked pairings found.</p>
                     <?php else: ?>
+                        <?php $blocks_for = (int)($_GET['blocks_for'] ?? 0); ?>
+                        <label for="block_filter" class="form-label small text-muted">Show blocks for</label>
+                        <select id="block_filter" class="form-select form-select-sm mb-2">
+                            <option value="">Everyone</option>
+                            <?php foreach ($blocked_users as $user): ?>
+                                <option value="<?php echo (int)$user['id']; ?>"<?php if ((int)$user['id'] === $blocks_for) echo ' selected'; ?>>
+                                    <?php echo h($user['name']); ?> (<?php echo $block_counts[$user['id']]; ?>)<?php if ($user['disabled']) echo ' (disabled)'; ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                         <ul class="list-group">
                             <?php foreach ($blocked_pairings as $block): ?>
-                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                <li class="list-group-item d-flex justify-content-between align-items-center" data-users="<?php echo (int)$block['id1'] . ' ' . (int)$block['id2']; ?>">
                                     <span>
-                                        <?php foreach ([1, 2] as $n): ?>
-                                            <?php if ($n === 2) echo '&harr;'; ?>
+                                        <?php // With a person selected, show them on the left of each row
+                                        foreach ((int)$block['id2'] === $blocks_for ? [2, 1] : [1, 2] as $i => $n): ?>
+                                            <?php if ($i === 1) echo '&harr;'; ?>
                                             <?php if ($block["disabled{$n}"]): ?>
-                                                <span class="text-body-secondary" title="This user is disabled"><?php echo h($block["name{$n}"]); ?> <span class="badge text-bg-secondary">Disabled</span></span>
+                                                <span class="text-body-secondary" title="This user is disabled" data-user-id="<?php echo (int)$block["id{$n}"]; ?>"><?php echo h($block["name{$n}"]); ?> <span class="badge text-bg-secondary">Disabled</span></span>
                                             <?php else: ?>
-                                                <?php echo h($block["name{$n}"]); ?>
+                                                <span data-user-id="<?php echo (int)$block["id{$n}"]; ?>"><?php echo h($block["name{$n}"]); ?></span>
                                             <?php endif; ?>
                                         <?php endforeach; ?>
                                     </span>
@@ -340,12 +361,62 @@ admin_header('User Management', $feedback_message, $feedback_class);
                                 </li>
                             <?php endforeach; ?>
                         </ul>
+                        <p id="block_filter_count" class="small text-muted mt-2 mb-0"></p>
                     <?php endif; ?>
                 </div>
             </div>
         </div>
     </div>
 <script nonce="<?php echo csp_nonce(); ?>">
+    // "Show blocks for": hides blocks that don't involve the chosen person, puts them on
+    // the left of each row, and keeps the choice in the URL so it survives saving forms.
+    (function () {
+        const filter = document.getElementById('block_filter');
+        if (!filter) return;
+        const items = document.querySelectorAll('#existing_blocks li[data-users]');
+        const count = document.getElementById('block_filter_count');
+
+        function apply() {
+            const id = filter.value;
+            let shown = 0;
+            items.forEach(function (li) {
+                const ids = li.dataset.users.split(' ');
+                const match = id === '' || ids.includes(id);
+                li.classList.toggle('d-none', !match);
+                if (!match) return;
+                shown++;
+                const span = li.firstElementChild;
+                const names = span.querySelectorAll(':scope > [data-user-id]');
+                const first = id !== '' ? id : ids[0]; // the chosen person, else the original order
+                if (names[0].dataset.userId !== first) {
+                    span.replaceChildren(names[1], document.createTextNode(' \u2194 '), names[0]);
+                }
+                names.forEach(function (n) { n.classList.toggle('fw-bold', n.dataset.userId === id); });
+            });
+            count.textContent = id === '' ? '' : shown + ' of ' + items.length + ' blocks shown';
+
+            const url = new URL(window.location.href);
+            if (id === '') url.searchParams.delete('blocks_for'); else url.searchParams.set('blocks_for', id);
+            history.replaceState(null, '', url);
+            document.querySelectorAll('form[action^="users.php"]').forEach(function (form) {
+                const action = new URL(form.getAttribute('action'), window.location.href);
+                if (id === '') action.searchParams.delete('blocks_for'); else action.searchParams.set('blocks_for', id);
+                form.setAttribute('action', action.pathname.split('/').pop() + action.search);
+            });
+        }
+
+        filter.addEventListener('change', apply);
+        document.querySelectorAll('a.show-blocks').forEach(function (link) {
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+                filter.value = link.dataset.userId;
+                apply();
+                document.getElementById('existing_blocks').scrollIntoView({ behavior: 'smooth' });
+            });
+        });
+        apply();
+    })();
+
     // Phone input: formats as (630) 555-0123 while typing and flags invalid numbers.
     // The server re-validates and stores just the 10 digits.
     (function () {
