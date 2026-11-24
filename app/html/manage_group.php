@@ -78,7 +78,8 @@ function find_assignment(array $p_data, array $forbidden, $max_steps = 200000) {
 
 /** Everyone in the group with their assignment, view stats and text-message status. */
 function load_participants($pdo, $group_id) {
-    // View stats come from the participant_views table; group_concat gives all timestamps for the popover.
+    // View stats come from the participant_views table; group_concat gives every view as
+    // 'timestamp|ip' for the popover (timestamps contain no '|').
     $sql = "SELECT
                 p1.id AS participant_id,
                 u1.id AS user_id,
@@ -88,7 +89,7 @@ function load_participants($pdo, $group_id) {
                 (SELECT u2.name FROM users u2 JOIN participants p2 ON u2.id = p2.user_id WHERE p2.id = p1.current_giving_to_id) AS receiver_name,
                 p1.current_giving_to_id,
                 (SELECT COUNT(*) FROM participant_views WHERE participant_id = p1.id) AS view_count,
-                (SELECT group_concat(view_timestamp, ',') FROM participant_views WHERE participant_id = p1.id) AS view_history,
+                (SELECT group_concat(view_timestamp || '|' || COALESCE(ip_address, ''), ',') FROM participant_views WHERE participant_id = p1.id) AS view_history,
                 (SELECT MAX(sent_at) FROM sms_log s WHERE s.group_id = p1.group_id AND s.user_id = u1.id AND s.success = 1 AND s.test_mode = 0) AS sms_sent_at,
                 (SELECT MAX(sent_at) FROM sms_log s WHERE s.group_id = p1.group_id AND s.user_id = u1.id AND s.success = 1 AND s.test_mode = 1) AS sms_test_at,
                 (SELECT provider_id FROM sms_log s WHERE s.group_id = p1.group_id AND s.user_id = u1.id AND s.success = 1 AND s.test_mode = 0 ORDER BY s.id DESC LIMIT 1) AS sms_sent_via,
@@ -596,12 +597,15 @@ admin_header('Manage: ' . $group['name'], $feedback_message, $feedback_class,
                                 <td><?php echo h($p['giver_name']); ?></td>
                                 <td>
                                     <?php if ($p['view_count'] > 0):
-                                        // Format view history (stored in UTC) for the popover
+                                        // Format view history (stored in UTC) for the popover: time and IP address
                                         $views = $p['view_history'] ? explode(',', $p['view_history']) : [];
-                                        rsort($views); // newest first
+                                        rsort($views); // newest first (entries start with the timestamp)
                                         $history_html = "<ul class='mb-0 ps-3 text-start small'>";
                                         foreach ($views as $v) {
-                                            $history_html .= "<li>" . format_local($v, 'M j, g:i a') . "</li>";
+                                            [$time, $ip] = array_pad(explode('|', $v, 2), 2, '');
+                                            $history_html .= "<li>" . format_local($time, 'M j, g:i a')
+                                                . ($ip !== '' ? " <span class='text-body-secondary font-monospace'>" . h($ip) . "</span>" : '')
+                                                . "</li>";
                                         }
                                         $history_html .= "</ul>";
                                         ?>
