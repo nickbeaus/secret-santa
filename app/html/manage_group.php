@@ -614,8 +614,8 @@ admin_header('Manage: ' . $group['name'], $feedback_message, $feedback_class,
                                               tabindex="0"
                                               data-bs-toggle="popover"
                                               data-bs-html="true"
-                                              data-bs-trigger="hover focus"
-                                              title="View History"
+                                              data-bs-trigger="click"
+                                              title="View History (click outside to close)"
                                               data-bs-content="<?php echo h($history_html); ?>">
                                             Yes (<?php echo (int)$p['view_count']; ?>)
                                         </span>
@@ -720,8 +720,19 @@ admin_header('Manage: ' . $group['name'], $feedback_message, $feedback_class,
     })();
 
     document.addEventListener('DOMContentLoaded', function() {
-        // Initialize Bootstrap Popovers
-        document.querySelectorAll('[data-bs-toggle="popover"]').forEach(el => new bootstrap.Popover(el));
+        // Initialize Bootstrap Popovers. They open on click and stay open (so the IP addresses
+        // can be selected and copied) until you click outside them, open another, or press Esc.
+        const popoverToggles = [...document.querySelectorAll('[data-bs-toggle="popover"]')];
+        popoverToggles.forEach(el => new bootstrap.Popover(el));
+        function closePopovers(except) {
+            popoverToggles.forEach(el => { if (el !== except) bootstrap.Popover.getInstance(el).hide(); });
+        }
+        document.addEventListener('click', function (e) {
+            const toggle = e.target.closest('[data-bs-toggle="popover"]');
+            if (toggle) { closePopovers(toggle); return; }   // opening one closes the others
+            if (!e.target.closest('.popover')) closePopovers(null); // click outside: close all
+        });
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closePopovers(null); });
 
         // Logic for revealing assignments individually
         document.querySelectorAll('.reveal-assignment-btn').forEach(button => {
